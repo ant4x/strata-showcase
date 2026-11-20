@@ -1,4 +1,4 @@
-# Excerpt from Strata: strata/engines/claude_code.py. Omitted: the module docstring, imports, the other constants, the Process protocol, the CostLedger class, and every method of ClaudeCodeEngine except command, subscription and child_env. Source is private.
+# Excerpt from Strata: strata/engines/claude_code.py. Omitted: the module docstring, imports, the logger, the other constants, the Process protocol, the Spawn alias, the CostLedger class, every method of ClaudeCodeEngine except command, subscription and child_env, and the helpers _kill_if_running, _json_result and _classify. Source is private.
 WORKER_TOOL = "claude"  # the tool name the launcher knows
 # Inherited variables that could change how the child signs in or what it loads.
 _CLAUDE_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")

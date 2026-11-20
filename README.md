@@ -51,7 +51,7 @@ flowchart LR
 - The size comes from my `#S`, `#M` or `#L` tag, the skill's minimum, keywords and the length of the request.
 - On `/model`, the recent exchanges are summarized and the new engine continues from that summary.
 
-On the server, two systemd services and two Unix users:
+On the server, two long-running systemd services (plus a timer that counts failed SSH logins) and two Unix users:
 
 ```mermaid
 flowchart TB
@@ -246,11 +246,11 @@ Reviewing this page against the source turned up five weaknesses in the code. Ea
 
 - the queue held back a task I did not start and not yet routed to a skill whenever any skill was paused: for its NULL skill, SQL's `skill IN (...)` is NULL, and so is the `NOT (...)` around it (no caller creates such a task yet);
 - a `.gitattributes` line with `-diff` made a file look binary in the staged diff, so a secret in it passed the commit check and removed tests in it went uncounted;
-- several ways to drop tests slipped past the CI guard: renaming a test file so the runner no longer collects it, a focused test such as `it.only`, removing Go, Java or Rust tests, and pytest options such as `--deselect`;
-- a new Strata proposal in a card I had edited replaced the old proposal and everything I had written below it;
+- several ways to drop tests slipped past the CI guard: renaming a test file so the runner no longer collects it, deleting one whose non-ASCII name git printed in quotes, a focused test such as `it.only`, removing Go, Java or Rust tests, and pytest options such as `--deselect`;
+- a new Strata proposal in a card I had edited replaced the old proposal and anything I had written under it, up to the next heading;
 - a card counted as Strata's when `git status` or `git log` failed, so Strata could overwrite my text.
 
-A sixth was in a test: it wrote the CI machine's date while `/status` counts days in my time zone, so it failed every evening between 20:00 and midnight UTC.
+A sixth was in a test: it wrote the CI machine's date while `/status` counts days in my time zone, so it failed on any run in the hours when my date is already a day ahead of UTC.
 
 <details>
 <summary>Three cases from earlier in the build</summary>
@@ -263,7 +263,7 @@ A sixth was in a test: it wrote the CI machine's date while `/status` counts day
 
 ## Roadmap
 
-Next: the first run on a server, following its checklist. Then four planned phases, in this order: a context guard (20), reply context and a list of what Strata promised (18), search in history (16) and a user guide (19).
+Next: the first run on a server, following its checklist. Then four planned phases: a context guard (20), reply context and a list of what Strata promised (18), a user guide (19) and, after 2 to 3 weeks of real findings, search in history (16).
 
 <details>
 <summary>All phases</summary>
@@ -312,7 +312,7 @@ Python 3.11 and later (3.14 on the planned server), aiogram 3, aiosqlite (SQLite
 | [snippets/ci_guard.py](snippets/ci_guard.py) | The check that drops a CI fix that drops tests |
 | [snippets/test_ci_guard.py](snippets/test_ci_guard.py) | Its tests: a real fix, a moved test file, what a fix must not do, renames, focused tests, how the runner starts |
 
-A script copies these excerpts from the private source. Each file's first line names its source file and what was left out; references to private docs such as `PLAN.md` are kept as written. They import modules that are not included, so they are for reading, not running.
+A script copies these excerpts from the private source. Each file's first comment line names its source file and what was left out; references to private docs such as `PLAN.md` are kept as written. They import modules that are not included, so they are for reading, not running.
 
 ## Author
 

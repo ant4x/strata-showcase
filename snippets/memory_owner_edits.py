@@ -1,4 +1,4 @@
-# Excerpt from Strata: strata/memory/store.py. Omitted: imports, the logger, the constants PRIVATE, LEARNED and UPDATE_TRIES, the classes MemoryPathError, MemoryChanged, _Unset (with UNSET) and Place, the helpers _locked, _write_atomic, _section, _insert_fact, _without_fact, _one_line and _short, and every method of Memory except write and _owner_edited. Source is private.
+# Excerpt from Strata: strata/memory/store.py. Omitted: imports, the logger, the constants PRIVATE, LEARNED, UPDATE_TRIES and HEADING, the classes MemoryPathError, MemoryChanged, _Unset (with UNSET) and Place, the helpers _locked, _without_callout, _write_atomic, _section, _insert_fact, _without_fact, _one_line and _short, and every method of Memory except write and _owner_edited. Source is private.
 """Read and write memory, and commit every change to the right repository.
 
 Memory is one folder (one Obsidian vault) holding two git repositories:
