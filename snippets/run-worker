@@ -1,0 +1,78 @@
+#!/bin/bash
+# Excerpt from Strata: deploy/run-worker (full file). Source is private.
+# Strata's launcher for coding workers (docs/OPEN_QUESTIONS.md, entry 20).
+#
+# Runs one coding tool as the worker user, in one checkout of the workspace.
+# deploy/install.sh installs it as /usr/local/lib/strata/run-worker (owned by
+# root, so Strata cannot change it) and fills in the two paths below. The
+# strata service may run it, and nothing else, as the worker user:
+#
+#   sudo -n -u strata-exec -- /usr/local/lib/strata/run-worker <checkout> <tool> [args...]
+#   sudo -n -u strata-exec -- /usr/local/lib/strata/run-worker --check
+#
+# The checkout must be a folder right inside the workspace. The tool must be
+# one of TOOLS. Its environment is rebuilt from scratch: the worker gets its own
+# home and PATH and, of Strata's settings, only the sign-in keys sudo passes on.
+# Files it creates are writable by the workspace's group (umask 007), so Strata
+# can commit them.
+
+set -euo pipefail
+
+WORKSPACE=@WORKSPACE@
+TOOL_PATH=@TOOL_PATH@
+TOOLS=(claude)
+SIGN_IN=(CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY)
+
+die() {
+  echo "run-worker: $*" >&2
+  exit 64
+}
+
+me=$(id -un)
+home=$(getent passwd "$me" | cut -d: -f6)
+[[ -n $home ]] || die "no home folder for $me"
+tool_path=${TOOL_PATH//@HOME@/$home}
+
+clean_env=(
+  "HOME=$home"
+  "USER=$me"
+  "LOGNAME=$me"
+  "PATH=$tool_path"
+  "LANG=C.UTF-8"
+)
+for name in "${SIGN_IN[@]}"; do
+  if [[ -n ${!name:-} ]]; then
+    clean_env+=("$name=${!name}")
+  fi
+done
+
+if [[ ${1:-} == --check ]]; then
+  # The set-up check deploy/install.sh runs: the user can work in the workspace.
+  [[ -d $WORKSPACE && -x $WORKSPACE ]] || die "$me cannot enter $WORKSPACE"
+  for tool in "${TOOLS[@]}"; do
+    found=$(env -i "${clean_env[@]}" bash -c "command -v $tool" || true)
+    echo "${tool}: ${found:-not installed for $me}"
+  done
+  echo "ok: $me can work in $WORKSPACE"
+  exit 0
+fi
+
+[[ $# -ge 2 ]] || die "usage: run-worker <checkout> <tool> [args...]"
+checkout=$(realpath -e -- "$1" 2>/dev/null) || die "no such folder: $1"
+tool=$2
+shift 2
+
+[[ -d $checkout ]] || die "not a folder: $checkout"
+[[ $(dirname -- "$checkout") == "$WORKSPACE" ]] || die "not a folder of $WORKSPACE: $checkout"
+name=$(basename -- "$checkout")
+[[ $name != .* ]] || die "not a checkout: $checkout"
+
+allowed=no
+for known in "${TOOLS[@]}"; do
+  [[ $tool == "$known" ]] && allowed=yes
+done
+[[ $allowed == yes ]] || die "tool not allowed: $tool"
+
+umask 007
+cd -- "$checkout"
+exec env -i "${clean_env[@]}" "$tool" "$@"
