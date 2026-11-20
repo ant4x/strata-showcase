@@ -21,7 +21,7 @@ I led the development end to end and used AI coding agents as tools: Claude Code
 
 - 136 Python files, about 23,000 lines: seven skills and the core (bot, queue, scheduler, orchestrator, engines, memory, operations).
 - 64 test files and 3 test helpers, about 16,000 lines: 1,009 tests, all offline, run by CI on Python 3.11 and 3.12 and in an Ubuntu 26.04 container on its own Python 3.14.
-- 38 pull requests from 28 September to 25 October 2026: 17 phases built, 4 planned.
+- 38 pull requests between 28 September and 25 October 2026: 17 phases built, 4 planned.
 - Not deployed yet: nothing has run against the real Telegram, Claude, GitHub or a server. The checks for the first run are written down.
 
 ## What it does
@@ -31,17 +31,17 @@ Seven skills. Each is a folder with its own commands, schedule and the memory fi
 | Skill | What it does | When |
 |---|---|---|
 | Assistant | Answers questions and does small tasks no other skill takes. Reads my profile, my preferences and only the memory cards the task needs. | A message, or `/ask` |
-| Research and posts | Researches each topic over the last day or two with web search and sends a brief with sources. Then, in a fresh session that sees only the brief, drafts a post for every channel whose rule matches the topic, in the brand's voice and the platform's format (Telegram, X, Threads, LinkedIn). Under a draft: Approve gives a clean copy to paste, Rewrite takes my comment, Archive. | Daily, and `/research` |
+| Research and posts | Researches each topic over the last day or two with web search and sends a brief with sources. Then, in a fresh session that sees only the brief, drafts a post for every channel whose rule matches the topic, in the brand's voice and the platform's format (Telegram, X, Threads, LinkedIn). Under a draft: Approve gives a clean copy to paste, Rewrite makes a new draft from my comment, Archive puts it away. | Daily, and `/research` |
 | What works | Researches what works on each platform now (formats, hooks, length) and looks at which drafts I approved, rewrote or archived in the last 30 days. Rewrites the research section of the platform notes the drafts follow, with up to 3 example posts per style. My own rules section is never touched. | Weekly, and `/playbook` |
 | Topic scouting | Looks every day for what takes off in my niche that my topic list lacks. A hot topic comes at once, the rest on Sunday, ranked by the days they came up. One button adds a topic; a declined one does not come back. | Daily, and `/scout` |
-| Market brief | Coins and US stocks on a watchlist. The numbers are computed in code from free data sources: the 1, 7 and 30 day change, the distance from the 52-week high, the trend against the 50 and 200 day averages, RSI, volume against the usual, and how unusual today's move is in standard deviations of the last 60 days. Then one run with web search explains the unusual moves, the consensus and the week's calendar. It reports and never advises a trade. Ready requests for Grok about what X says follow the brief; my pasted answer becomes moods per asset and topics, each one button away from drafts. | Daily, and `/markets`, `/watch` |
-| Ideas | Reads its own week (failures, requests no skill took, repeated requests, money, findings) and proposes up to 3 improvements to itself, each with its facts, cost, risk and how to undo it. Code checks the cited facts before I see them. An approved memory change is applied in one commit; an approved code change becomes a coding task, a pull request I merge. | Weekly, and `/ideas` |
+| Market brief | Coins and US stocks on a watchlist. The numbers are computed in code from free data sources: the change over 1, 7 and 30 days, the distance from the 52-week high, the trend against the 50- and 200-day averages, RSI, volume against the usual, and how unusual today's move is in standard deviations of the last 60 days. Then one run with web search explains the unusual moves, the consensus and the week's calendar. It reports and never advises a trade. Ready requests for Grok about what X says follow the brief; my pasted answer becomes moods per asset and topics, each one button away from drafts. | Daily, and `/markets`, `/watch` |
+| Ideas | Reads its own week (failures, requests no skill took, repeated requests, spending, findings) and proposes up to 3 improvements to itself, each with its facts, cost, risk and how to undo it. Code checks the cited facts before I see them. An approved memory change is applied in one commit; an approved code change becomes a coding task, a pull request I merge. | Weekly, and `/ideas` |
 | Coding tasks | `/dev owner/repo task`: a plan and a GitHub issue, a coding worker in a checkout, a review of each round's diff, a pull request and a wait for CI. A red CI goes back to the worker with the end of the failed log, at most twice; a fix that weakens the tests is thrown away. A reply to the job's message steers it or asks for another round. Ends with a link and "Ready for prod?". | A command |
 
 Around the skills:
 
 - One status message per task, edited in place: queued, working, done with its cost, or failed with the reason. `/cancel` stops a task.
-- `/model` switches a skill's engine. The conversation so far is summarised for the new engine, so nothing is lost on the switch.
+- `/model` switches a skill's engine. The conversation so far is summarized for the new engine, so nothing is lost on the switch.
 - `/status` shows the queue, the skills, the engines, today's numbers and whether the worker is alive; `/budget` shows the day's money.
 - `/memory`, `/remember` and `/forget`: what Strata knows about me.
 - `/secrets` and `/rotate`: where each key lives and how to replace it.
@@ -111,7 +111,7 @@ flowchart TB
 
 ## Engineering decisions
 
-- **One identity file, one `.env`.** Every engine, Claude Code, OpenRouter models and the coding worker alike, gets the same `STRATA.md`: who Strata is, how it writes, its rules and how its memory is laid out. There are no per-engine copies. All settings come from one `.env`; shell variables are ignored, so there is one source of truth, and a missing optional key switches off only the engines and skills that need it.
+- **One identity file, one `.env`.** Claude Code, the OpenRouter models and the coding worker all get the same `STRATA.md`: who Strata is, how it writes, its rules and how its memory is laid out. There are no per-engine copies. All settings come from one `.env`; shell variables are ignored, so there is one source of truth, and a missing optional key switches off only the engines and skills that need it.
 - **One bot per token.** Two pollers on one Telegram token make Telegram answer 409 to one of them at random, and the bot goes quiet without an obvious error. Each process holds an `flock` lock file named by a hash of the token. The kernel releases it however the process dies; a second copy exits with code 3, which systemd does not restart; a file left by a dead process is taken over with a log line. The worker has one lock per data folder.
 - **A queue two processes can share.** A task is claimed under SQLite's `BEGIN IMMEDIATE`, so two workers never take the same task and the parallel limit holds in a race. A test races four connections for 30 tasks; with the transaction removed it caught 42 to 46 claims. A failed attempt comes back after a growing pause, a task cut off by a restart goes back to the queue, and a task waiting for a used-up usage limit does not spend its attempts.
 - **Incidents written at the next start.** While a process runs, a marker file exists, and a clean exit removes it. A crash, or a start that finds the marker (killed, out of memory, stopped by the watchdog), writes an incident to personal memory: time, component, last task and the redacted end of the log, as `LATEST.md` plus a dated copy. The same failure within an hour is counted, not written again. A front desk reports each incident once, fixes known problems with safe scripts (low disk space, a failed backup push), asks a read-only model run to explain the rest, and runs a script it suggests only after I press a button.
@@ -151,7 +151,7 @@ flowchart TB
 | 17 | Secrets and hardening | Built |
 | 18 | Reply context, and a list of what Strata promised and what it waits for | Planned |
 | 19 | A user guide, and Strata explaining itself | Planned, after the first run |
-| 20 | Context guard: long conversations summarised before they eat the usage limits | Planned, right after the first run |
+| 20 | Context guard: long conversations summarized before they eat the usage limits | Planned, right after the first run |
 
 Next: the first run on a server with its checklist, then phases 20, 18, 16 and 19.
 
