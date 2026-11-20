@@ -1,4 +1,4 @@
-# Excerpt from Strata: tests/test_queue_sqlite.py. Omitted: imports, the helper _task_in, the OPERATIONS table and the other 25 tests: the bot protocol, enqueueing, reopening and the schema, cancelling and counts, single claims, retries and usage limits, background work, errors, restarts, status transitions and usage records. Source is private.
+# Excerpt from Strata: tests/test_queue_sqlite.py. Omitted: imports, the helper _task_in, the OPERATIONS table and the other 26 tests: the bot protocol, enqueueing, reopening and the schema, cancelling and counts, single claims and the parallel limit, retries and usage limits, background work, errors, restarts, status transitions, unknown ids, usage records and the plan. Source is private.
 """SQLite queue: atomic claiming, parallel limit, retries, transitions, restarts."""
 
 S = TaskStatus

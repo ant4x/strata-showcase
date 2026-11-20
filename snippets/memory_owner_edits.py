@@ -75,7 +75,8 @@ class Memory:
     async def _owner_edited(self, place: Place) -> bool:
         """Whether anyone but Strata wrote this note: a commit, or a change not committed.
 
-        When git cannot tell, the note counts as the owner's, so it is kept.
+        When git fails, the note counts as the owner's, so it is kept. A folder that
+        is not a git repository has no history to ask, and Strata writes as usual.
         """
         if not is_repo(place.repo):
             return False
@@ -97,8 +98,9 @@ def _proposal(current: str, proposed: str, note: str) -> str:
 
     Frontmatter keys the owner's note lacks are added from Strata's version;
     the owner's values stay. The proposal is a callout (`> ` lines), so its
-    own headings cannot end the section. A newer proposal replaces the callout
-    and nothing else: what the owner wrote below it stays.
+    own headings cannot end the section. A newer proposal replaces Strata's
+    callout and nothing else: whatever the owner wrote in the section stays,
+    below the new callout.
     """
     head, body_text = frontmatter.split(frontmatter.with_missing(current, proposed))
     lines = body_text.rstrip("\n").split("\n") if body_text.strip() else []
@@ -111,10 +113,8 @@ def _proposal(current: str, proposed: str, note: str) -> str:
     if start is None:
         lines += ["", *section] if lines else section
     else:
-        end = start + 1
-        if end < len(lines) and not lines[end].strip():
-            end += 1  # the blank line under the heading
-        while end < len(lines) and lines[end].startswith(">"):
-            end += 1
-        lines[start:end] = section + ([""] if end < len(lines) and lines[end].strip() else [])
+        end = next((i for i in range(start + 1, len(lines)) if HEADING.match(lines[i])), len(lines))
+        own = _without_callout(lines[start + 1 : end])
+        after = [""] if end < len(lines) else []
+        lines[start:end] = section + (["", *own] if own else []) + after
     return frontmatter.join(head, "\n".join(lines) + "\n")

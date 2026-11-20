@@ -1,10 +1,10 @@
 # Strata
 
-**Status: built and tested offline, not yet deployed.** 17 of the 21 planned phases are done; the first run on a server comes next.
+**Status: built and tested offline, not yet deployed.** Nothing has run against the real Telegram, Claude or GitHub APIs or on a server yet. 17 of the 21 planned phases are done; the first server run, with a written checklist, comes next.
 
-A personal AI agent for one owner. I talk to it through a private Telegram bot, and it does its work on the Claude Code CLI (headless) and OpenRouter models, on request and on a schedule. It researches the topics I follow and drafts posts for my channels, learns what works on each platform, scouts new topics, writes a daily brief on a market watchlist, proposes improvements to itself and takes a coding task to a pull request. It prepares, I decide: Strata publishes, merges and deploys nothing by itself.
+A personal AI agent for one owner. I talk to it through a private Telegram bot, and it runs its work through the Claude Code CLI in headless mode and OpenRouter models, on request and on a schedule. It researches the topics I follow and drafts posts for my channels, keeps notes on what works on each platform, scouts new topics, writes a daily brief on a market watchlist, proposes improvements to itself and takes a coding task to a pull request. It prepares, I decide: Strata publishes, merges and deploys nothing by itself.
 
-Most of the engineering is in the guardrails: two processes that share one SQLite queue, memory in git where my edits win, a coding agent with no shell under its own Unix user, and secrets masked before any model sees them.
+Most of the engineering is in reliability and guardrails: a bot process and a worker process that share one SQLite queue, so a long task never blocks the chat; memory as Markdown in git, where Strata never overwrites my edits; Strata's own coding agent, which runs under its own Unix user with file tools and no shell; and secrets masked before any model sees them.
 
 **Source is private. This repository documents the architecture and includes selected code excerpts.**
 
@@ -12,15 +12,14 @@ Most of the engineering is in the guardrails: two processes that share one SQLit
 
 I led the development end to end and used AI coding agents as tools: Claude Code, OpenAI Codex and Google Gemini. The commits went through Claude Code, so they carry its co-author line.
 
-- **Decisions:** the scope and order of the work (21 phases), which data never leaves the server, the security rules (orders only from me, a coding agent without a shell under its own Unix user, nothing published or merged without my approval), which model handles which work, the daily spending limit.
+- **Decisions:** the scope and order of the work (21 phases), which data is never backed up off the server, the security rules (tasks only from me, a coding agent without a shell under its own Unix user, nothing published or merged without my approval), which model handles which work, the daily spending limit.
 - **Process:** each phase was one session on its own branch, ending in a pull request with its tests and an entry in the build log; CI from the second pull request on; I approved every merge.
 
 ## In numbers
 
 - 136 Python files, about 23,000 lines: seven skills and the core (bot, queue, scheduler, orchestrator, engines, memory, operations).
-- 1,018 tests, all offline, in 64 files and 3 helpers of about 16,000 lines, run by CI on Python 3.11, 3.12 and 3.14 (one test, of the sudo rule, needs root and is skipped on 3.11 and 3.12).
-- 38 pull requests from September 28 to October 25, 2026.
-- Nothing has run against the real Telegram, Claude, GitHub or a server yet; the first-run checks are written down.
+- 1,025 offline tests in 64 test files and 3 helper modules, about 16,000 lines, run by CI on Python 3.11, 3.12 and 3.14; the one test that needs root, for the sudo rule, is skipped on 3.11 and 3.12.
+- 39 pull requests from September 28 to November 21, 2026.
 
 ## How it works
 
@@ -33,7 +32,8 @@ flowchart LR
     Queue -- claim --> Orch[worker process: orchestrator]
     Orch -- skill, size, context --> Skill[skill]
     Skill -- prompt and context, secrets masked --> Engine[engine: Claude Code CLI or OpenRouter]
-    Orch -- reads and writes --> Memory[(memory: work and private)]
+    Orch -- reads and writes --> Memory[(memory: work and personal)]
+    Bot -- facts I approve --> Memory
     Memory -- work memory, nightly --> Backup[(private GitHub backup)]
     Skill -- issue, branch, pull request --> Repos[(GitHub repositories)]
     Orch -- status and results, Bot API --> Me
@@ -41,15 +41,15 @@ flowchart LR
 
 - **Two processes.** The bot process answers me, handles commands and buttons and queues tasks. The worker process runs the schedule, takes tasks from the queue and sends status and results through the Bot API, so a long task never blocks the chat.
 - **Routing.** A task goes to a skill by its command, else by keywords, else by a cheap model choosing from the skills' one-line descriptions, else to the assistant. Its size, S, M or L, picks the model and its limits.
-- **Context.** `STRATA.md`, my language and local time, and only the memory files the skill declares, capped per file and in total.
-- **Engines.** One interface for the Claude Code CLI (Haiku, Sonnet or Opus by size) and OpenRouter models. Each skill has its own; `/model` switches it.
+- **Context.** Every run gets `STRATA.md` (Strata's identity and rules), my language and local time, and only the memory files its skill declares, capped per file and in total.
+- **Engines.** One interface for the Claude Code CLI (Haiku, Sonnet or Opus by size) and OpenRouter models. Each skill has its own engine, and `/model` switches it.
 
 <details>
 <summary>More on the processes, routing and engines, and the server layout</summary>
 
 - The two processes share the data folder (the queue, the drafts database, heartbeat and incident files) and memory.
 - The size comes from my `#S`, `#M` or `#L` tag, the skill's minimum, keywords and the length of the request.
-- On `/model`, the conversation so far is summarized and the new engine continues from that summary.
+- On `/model`, the recent exchanges are summarized and the new engine continues from that summary.
 
 On the server, two systemd services and two Unix users:
 
@@ -77,6 +77,8 @@ flowchart TB
 
 ## What it does
 
+Each job is a skill: a folder of code with its own commands, schedule, engine and the memory files it may read.
+
 | Skill | What it does | When |
 |---|---|---|
 | Assistant | Answers questions and does small tasks, knowing my profile, my preferences and only the memory cards the task needs. | Any message, or `/ask` |
@@ -90,7 +92,7 @@ flowchart TB
 <details>
 <summary>Each skill in detail, and what comes with them</summary>
 
-Each skill is a folder of code with its own catalog card, plus an entry in `config/skills.yaml` with its engine, commands, schedule and the memory files it may read. A new skill is one folder and one entry, and `/help` lists it from its card.
+A skill's settings live in `config/skills.yaml`, its description in a catalog card in its folder. A new skill is one folder and one entry, and `/help` lists it from its card.
 
 - **Assistant.** Takes what no other skill takes. A plain message or `/ask`.
 - **Research and posts.** Researches each topic over the last day or two with web search and sends a brief with sources. A fresh session that sees only the brief drafts a post for each matching channel, in the brand's voice and the platform's format (Telegram, X, Threads, LinkedIn). Under each draft: Approve gives a clean copy to paste, Rewrite makes a new draft from my comment, Archive puts it away.
@@ -98,9 +100,9 @@ Each skill is a folder of code with its own catalog card, plus an entry in `conf
 - **Topic scouting.** A fast-rising subject comes at once, the rest on Sunday, ranked by the days they came up. A declined one is not proposed again for about two months.
 - **Market brief.** The numbers come from code over free data sources (CoinGecko, Tiingo, alternative.me): the change over 1, 7 and 30 days, the distance from the 52-week high, the trend against the 50- and 200-day averages, RSI, volume against the usual, and today's move in standard deviations of the last 60 days. The run with web search then explains the unusual moves, the consensus and the week's calendar. Strata does not read X itself, so the brief ends with ready prompts for Grok; the answer I paste back becomes the mood per asset and a list of topics, each a button away from drafts. `/watch` edits the list.
 - **Ideas.** Reads its week: failures, requests no skill took, repeated requests, spending, findings. Code checks the cited facts before I see them. An approved memory change is applied in one commit; an approved code change becomes a coding task, a pull request I merge.
-- **Coding tasks.** A failed CI check goes back to the coding agent with the end of its log, one round at a time and at most twice. A reply to the job's message steers it or asks for another round.
+- **Coding tasks.** A failed CI check goes back to the coding agent with the end of its log, one round at a time and at most twice by default. A reply to the job's message steers it or asks for another round.
 
-What comes with the skills:
+Shared by all skills:
 
 - one status message per task, edited in place: queued, working, done with its cost, or failed with the reason. `/cancel` cancels a task: a queued one never runs, a running one's result is dropped;
 - `/status` (the queue, skills, engines, today's numbers, whether the worker process is alive) and `/budget` (today's spending);
@@ -114,7 +116,7 @@ What comes with the skills:
 
 ## Memory
 
-Markdown notes in one folder, readable in Obsidian, in two git repositories: **work memory**, copied nightly to a private GitHub repository, and **personal memory** in `private/`, which has no remote and is never pushed off the server. A card is one note about one project, decision, subject or client.
+Memory is a folder of Markdown notes, readable in Obsidian, split into two git repositories: **work memory**, copied nightly to a private GitHub repository, and **personal memory** in `private/`, which has no remote and is never pushed off the server. A card is one note about one project, decision, subject or client.
 
 - **The index first:** a run gets the index and only the cards its task needs, never the whole memory.
 - **My edits win:** a card I edited keeps my text; Strata's version becomes a proposal inside it.
@@ -128,7 +130,7 @@ Markdown notes in one folder, readable in Obsidian, in two git repositories: **w
 - **Work memory** holds style, brands, platforms, topics, channels, cards, drafts, findings and ideas. Before the nightly copy, checks confirm that nothing private is tracked and that no secret from `.env` is in the outgoing commits.
 - **Personal memory** holds my profile, clients, my notes and incidents. It is never pushed or backed up off the server; its notes reach a model only as the context of a skill that declares them.
 - **Cards** have templates and typed frontmatter (type, description, aliases). `[[links]]` connect them; a nightly check reports broken links and never rewrites them.
-- **The index.** Each repository has a generated `INDEX.md`, one line per note, rebuilt in the same commit as every change. The assistant gets the index and the cards the task names by file name or alias, matched in code, or else, past 20 cards, the ones a short model run picks. Research loads only the brands and platforms the channel rules route to.
+- **The index.** Each repository has a generated `INDEX.md`, one line per note, rebuilt in the same commit as every change. The assistant gets the index plus the cards the request names by file name or alias, matched in code; if it names none and there are more than 20 cards, a short model run picks them. Research loads only the brands and platforms the channel rules route to.
 - **My edits.** I edit memory on my laptop and push it to the server. Strata replaces a card only if nobody else has written it; otherwise its version goes into a `## Proposed by Strata` section for me to take or delete. A section edit is reapplied to the new text if my push lands between Strata's read and write.
 - **Findings.** Every research brief, scouting report, platform report and market brief is saved in `findings/` and listed, newest first, in one note per subject. The next run on that subject reads the latest ones.
 - **Learning.** An answer may end with up to 3 facts worth remembering. Every evening a short run keeps the new, lasting and useful ones and sends them in one message, where I save, correct, move between private and shared, or reject each. Health, family, money, places and trips go to personal memory; a rejected fact is never proposed again.
@@ -168,14 +170,14 @@ Claude Code, the OpenRouter models and the coding agent all get the same `STRATA
 <details>
 <summary><b>One bot per token.</b> A kernel file lock stops a second poller before Telegram silences the bot.</summary>
 
-Two pollers on one Telegram token make Telegram answer 409 to one of them at random, and the bot goes quiet without an obvious error. Each process holds an `flock` lock file named by a hash of the token. The kernel releases it however the process dies; a second copy exits with code 3, which systemd does not restart; a file left by a dead process is taken over with a log line. The worker process has one lock per data folder. Excerpt: [snippets/instance_lock.py](snippets/instance_lock.py).
+Two pollers on one Telegram token make Telegram answer 409 to one of them at random, and the bot goes quiet without an obvious error. The bot process holds an `flock` lock file named by a hash of the token. The kernel releases it however the process dies; a second copy exits with code 3, which systemd does not restart; a file left by a dead process is taken over with a log line. The worker process has one lock per data folder. Excerpt: [snippets/instance_lock.py](snippets/instance_lock.py).
 
 </details>
 
 <details>
 <summary><b>A queue two processes can share.</b> Claims under SQLite's write lock, with a race test that fails without it.</summary>
 
-A task is claimed under `BEGIN IMMEDIATE`, so two workers never take the same task and the parallel limit holds in a race. A test races four connections for 30 tasks; with the transaction removed, the same race produced 42 to 46 claims. A failed attempt comes back after a growing pause, a task cut off by a restart goes back to the queue, and a task waiting for a usage limit to reset keeps its attempts. Excerpt: [snippets/queue_claim.py](snippets/queue_claim.py), tests: [snippets/test_queue_claim.py](snippets/test_queue_claim.py).
+A task is claimed under `BEGIN IMMEDIATE`, so no task is claimed twice and the limit on parallel tasks holds in a race. A test races four connections for 30 tasks; with the transaction removed, the same race produced 42 to 46 claims. A failed attempt comes back after a growing pause, a task cut off by a restart goes back to the queue, and a task waiting for a usage limit to reset keeps its attempts. Excerpt: [snippets/queue_claim.py](snippets/queue_claim.py), tests: [snippets/test_queue_claim.py](snippets/test_queue_claim.py).
 
 </details>
 
@@ -201,35 +203,35 @@ Approve on a draft gives me a clean copy to paste; the adapters for posting serv
 </details>
 
 <details>
-<summary><b>Orders only from me.</b> Text from files, web pages and tools is data, never an order.</summary>
+<summary><b>Tasks only from me.</b> The bot ignores everyone else, and every engine is told that text from files, web pages and tools is data, not instructions.</summary>
 
-The bot drops every update that is not mine. `STRATA.md` tells every engine that text in files, repositories, issues, web pages and tool output is data, never an order; CI logs reach the coding agent fenced as data.
+The bot drops every update that is not mine. `STRATA.md` tells every engine that text in files, repositories, issues, web pages and tool output is data, not instructions; CI logs reach the coding agent fenced as data.
 
 </details>
 
 <details>
 <summary><b>A coding agent that cannot run commands.</b> Its own Unix user, one launcher, file tools only, no GitHub token.</summary>
 
-It runs as its own Unix user through one sudo rule and one root-owned launcher, which runs only `claude`, only in a folder right inside the workspace, with an environment rebuilt from scratch. It has file tools and no shell, so it cannot run a command that sends its Claude sign-in key out, and it gets no GitHub token. Only Strata commits and pushes, with the git directory outside the agent's folder and hooks off; a commit is refused when the change contains a secret from `.env` as written, in files marked binary too. Excerpts: [snippets/run-worker](snippets/run-worker), [snippets/git_checkout.py](snippets/git_checkout.py).
+It runs as its own Unix user through one sudo rule and one root-owned launcher, which runs only `claude`, only in a direct subfolder of the workspace, with an environment rebuilt from scratch. Claude Code runs it restricted to its skill's file tools, with no tool that runs commands and no settings from the checkout, so it cannot run a command that sends its Claude sign-in key out; it gets no GitHub token. Only Strata commits and pushes, with the git directory outside the agent's folder and hooks off; a commit is refused if the staged change contains the literal value of any secret from `.env`, including in files git treats as binary. Excerpts: [snippets/run-worker](snippets/run-worker), [snippets/claude_command.py](snippets/claude_command.py), [snippets/git_checkout.py](snippets/git_checkout.py).
 
 </details>
 
 <details>
-<summary><b>A CI fix that cannot quietly drop tests.</b> Plain code checks the agent's fix before it is reviewed or pushed.</summary>
+<summary><b>The CI guard: a fix may not drop tests.</b> Plain code checks the agent's fix before it is reviewed or pushed.</summary>
 
-When CI fails, the coding agent gets the end of the failed logs and one round to fix the cause. A deleted test file or one renamed out of the runner's reach, a new skip, expected failure or pytest setting that leaves tests out, fewer test functions (Python, JavaScript, Go, Java, Rust) or a change under `.github/` drops the fix, and I hear what it tried. These are pattern checks: a weaker assertion still passes them. Excerpt: [snippets/ci_guard.py](snippets/ci_guard.py).
+When CI fails, the coding agent gets the end of the failed logs and one round to fix the cause. The guard rejects the fix if it deletes a test file or renames one so the runner no longer collects it; adds a skip, an expected failure, a focused test or a pytest option that leaves tests out; reduces the number of test functions (Python, JavaScript, Go, Java, Rust); or changes `.github/`, the npm test script or pytest's settings. I get a message with what it tried. These are pattern checks: they catch the usual shortcuts, and a weaker assertion still passes them. Excerpt: [snippets/ci_guard.py](snippets/ci_guard.py).
 
 </details>
 
 <details>
-<summary><b>Secrets masked in prompts, logs and commits.</b> Every engine is wrapped, and a test plants a key to prove it.</summary>
+<summary><b>Secrets masked in prompts, logs and commits.</b> Every engine is wrapped, and a test plants a key to check it.</summary>
 
 Configured secrets are masked in each prompt and context, the coding agent's too; a test plants a key in a memory note and in a request and checks that no engine sees it. Logs, Telegram messages, memory writes and commit messages go through the same redaction.
 
 </details>
 
 <details>
-<summary><b>A server whose disk may be read.</b> A secrets inventory, key rotation, SSH login alerts and a weekly restore test.</summary>
+<summary><b>Assume the server's disk can be read.</b> A secrets inventory, key rotation, SSH login alerts and a weekly restore test.</summary>
 
 - `docs/SECRETS.md`, generated from the code, lists every secret, riskiest first: what it opens, its limits and the steps to revoke and replace it, written to take about 15 minutes. `/rotate` walks through them and asks the service whether the new key works.
 - `/secrets` checks `.env`'s permissions, missing variables, configured keys in shell histories (named, never shown) and key files tracked by git. Both services refuse to start while `.env` is open to every user.
@@ -238,14 +240,17 @@ Configured secrets are masked in each prompt and context, the coding agent's too
 
 </details>
 
-## What reviews found
+## Bugs found in review
 
-Before this page went public, three separate AI agents checked it against the source, and each finding was checked again in the code. Apart from wording, they found four weaknesses, each now fixed with a test that failed first:
+Reviewing this page against the source turned up five weaknesses in the code. Each is fixed, with a test that failed first:
 
-- an unrouted scheduled task waited whenever any skill was paused: for a task with no skill, SQL's `skill IN (...)` is NULL, and so was the `NOT` around it;
-- a `.gitattributes` line with `-diff` made a file look binary in the staged diff, so a secret in it would reach a commit and removed tests in it went uncounted;
-- a test file renamed out of the runner's reach, removed Go, Java and Rust tests, and pytest's `--deselect` slipped past the CI guard;
-- a new proposal deleted what I had written below the previous one in a card.
+- the queue held back a task I did not start and not yet routed to a skill whenever any skill was paused: for its NULL skill, SQL's `skill IN (...)` is NULL, and so is the `NOT (...)` around it (no caller creates such a task yet);
+- a `.gitattributes` line with `-diff` made a file look binary in the staged diff, so a secret in it passed the commit check and removed tests in it went uncounted;
+- several ways to drop tests slipped past the CI guard: renaming a test file so the runner no longer collects it, a focused test such as `it.only`, removing Go, Java or Rust tests, and pytest options such as `--deselect`;
+- a new Strata proposal in a card I had edited replaced the old proposal and everything I had written below it;
+- a card counted as Strata's when `git status` or `git log` failed, so Strata could overwrite my text.
+
+A sixth was in a test: it wrote the CI machine's date while `/status` counts days in my time zone, so it failed every evening between 20:00 and midnight UTC.
 
 <details>
 <summary>Three cases from earlier in the build</summary>
@@ -258,7 +263,7 @@ Before this page went public, three separate AI agents checked it against the so
 
 ## Roadmap
 
-Next: the first run on a server with its checklist, then phase 20 (context guard), 18 (reply context and a list of promises), 16 (search in history) and 19 (a user guide).
+Next: the first run on a server, following its checklist. Then four planned phases, in this order: a context guard (20), reply context and a list of what Strata promised (18), search in history (16) and a user guide (19).
 
 <details>
 <summary>All phases</summary>
@@ -276,7 +281,7 @@ Built: 0 scaffold, 1 config and secrets, 2 Telegram bot, 3 SQLite queue, 4 engin
 
 ## Tests
 
-All offline: real git against local bare repositories standing in for GitHub, the real aiogram dispatcher against a fake Telegram, and fake processes in place of the Claude Code CLI and the server tools.
+Real git against local bare repositories standing in for GitHub, the real aiogram dispatcher against a fake Telegram, and fake processes in place of the Claude Code CLI and the server tools.
 
 <details>
 <summary>How each part is tested</summary>
@@ -302,11 +307,12 @@ Python 3.11 and later (3.14 on the planned server), aiogram 3, aiosqlite (SQLite
 | [snippets/memory_owner_edits.py](snippets/memory_owner_edits.py) | My edits win: who wrote a card, from git, and Strata's proposal |
 | [snippets/test_memory_owner_edits.py](snippets/test_memory_owner_edits.py) | Its tests, on real git repositories with my commits |
 | [snippets/run-worker](snippets/run-worker) | The launcher of the coding agent: its own user, one checkout, a clean environment |
+| [snippets/claude_command.py](snippets/claude_command.py) | How a Claude Code run is started: restricted to its tools, no tool that runs commands, nothing secret in its environment but its own sign-in key |
 | [snippets/git_checkout.py](snippets/git_checkout.py) | Git for the agent's checkout: a separate git directory, no hooks, the token only in one command's environment, the secret check |
-| [snippets/ci_guard.py](snippets/ci_guard.py) | The rules for a CI fix, and the check that drops one that drops tests |
-| [snippets/test_ci_guard.py](snippets/test_ci_guard.py) | Its tests: a real fix, a moved test file, what a fix must not do, renames, other languages, pytest settings |
+| [snippets/ci_guard.py](snippets/ci_guard.py) | The check that drops a CI fix that drops tests |
+| [snippets/test_ci_guard.py](snippets/test_ci_guard.py) | Its tests: a real fix, a moved test file, what a fix must not do, renames, focused tests, how the runner starts |
 
-A script copies the excerpts from the private source. The first line of each names its file and everything left out; references to private docs such as `PLAN.md` stay as they are. They import modules not included here, so they are for reading, not running.
+A script copies these excerpts from the private source. Each file's first line names its source file and what was left out; references to private docs such as `PLAN.md` are kept as written. They import modules that are not included, so they are for reading, not running.
 
 ## Author
 

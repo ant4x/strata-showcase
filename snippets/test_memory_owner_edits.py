@@ -1,4 +1,4 @@
-# Excerpt from Strata: tests/test_memory_owner_edits.py. Omitted: imports and five tests: the owner's own request, a note changed since it was read, and three of section edits (an edit applied again after a push, a note that keeps changing, facts and topics). Source is private.
+# Excerpt from Strata: tests/test_memory_owner_edits.py. Omitted: imports and six tests: a change not committed yet, the owner's own request, a note changed since it was read, and three of section edits (an edit applied again after a push, a note that keeps changing, facts and topics). Source is private.
 """The owner's edits win: proposals instead of rewrites, edits applied again after a push."""
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -74,15 +74,6 @@ async def test_a_note_the_owner_edited_gets_a_proposal_instead(memory: Memory, r
     assert "MY TEXT" in text, "Strata's own commit since does not make the note Strata's"
 
 
-async def test_a_change_not_committed_yet_is_the_owners_too(memory: Memory, root: Path) -> None:
-    await memory.write(CARD, STRATAS, message="card", source="assistant")
-    (root / CARD).write_text("# Stratoscope\n\nTyped on the server, not committed\n")
-
-    await memory.write(CARD, STRATAS + "\nNew.\n", message="card", source="assistant")
-
-    assert "Typed on the server" in (root / CARD).read_text()
-
-
 async def test_the_owners_text_after_a_proposal_stays(memory: Memory, root: Path) -> None:
     owner_commits(root, CARD, "# Stratoscope\n\nMY TEXT\n")
     await memory.write(CARD, STRATAS + "\nFirst.\n", message="m", source="assistant")
@@ -94,14 +85,15 @@ async def test_the_owners_text_after_a_proposal_stays(memory: Memory, root: Path
     assert "MY NOTE BELOW" in text and "Second." in text and "First." not in text
 
 
+@pytest.mark.parametrize("failing", ["status", "log"])
 async def test_a_card_counts_as_the_owners_when_git_cannot_tell(
-    memory: Memory, root: Path, monkeypatch: pytest.MonkeyPatch
+    memory: Memory, root: Path, monkeypatch: pytest.MonkeyPatch, failing: str
 ) -> None:
     await memory.write(CARD, STRATAS + "\nOld.\n", message="card", source="assistant")
     real = store.run_git
 
     async def git_fails_to_tell(repo: Path, *args: str, **kwargs: Any) -> tuple[int, str]:
-        if args[0] in ("status", "log"):
+        if args[0] == failing:
             return 128, ""
         return await real(repo, *args, **kwargs)
 
@@ -111,3 +103,18 @@ async def test_a_card_counts_as_the_owners_when_git_cannot_tell(
 
     text = (root / CARD).read_text()
     assert "Old." in text.split(PROPOSED)[0] and "> New." in text
+
+
+async def test_the_owners_words_inside_a_proposal_stay_and_the_old_version_goes(
+    memory: Memory, root: Path
+) -> None:
+    owner_commits(root, CARD, "# Stratoscope\n\nMY TEXT\n")
+    await memory.write(CARD, STRATAS + "\nFirst.\n", message="m", source="assistant")
+    text = (root / CARD).read_text().replace(f"{PROPOSED}\n", f"{PROPOSED}\n\nMY REMARK\n")
+    owner_commits(root, CARD, text)
+
+    await memory.write(CARD, STRATAS + "\nSecond.\n", message="m", source="assistant")
+
+    text = (root / CARD).read_text()
+    assert "MY REMARK" in text and "> Second." in text and "First." not in text
+    assert text.count("[!note]") == 1
