@@ -9,6 +9,7 @@ without any AI: a fix that deletes a test file, adds a skip or an expected
 failure, removes test functions or touches CI configuration is not sent.
 """
 
+# A test that no longer runs or no longer counts: Python, JavaScript, Java, Go, Rust.
 _SKIP = re.compile(
     r"pytest\.mark\.(skip|skipif|xfail)\b|pytest\.(skip|xfail)\(|@unittest\.(skip\w*|expectedFailure)"
     r"|\b(it|test|describe)\.(skip|todo|failing)\(|\bx(it|test|describe)\("
