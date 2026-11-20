@@ -73,17 +73,22 @@ class Memory:
         return path
 
     async def _owner_edited(self, place: Place) -> bool:
-        """Whether anyone but Strata wrote this note: a commit, or a change not committed."""
+        """Whether anyone but Strata wrote this note: a commit, or a change not committed.
+
+        When git cannot tell, the note counts as the owner's, so it is kept.
+        """
         if not is_repo(place.repo):
             return False
-        _, status = await run_git(
+        code, status = await run_git(
             place.repo, "status", "--porcelain", "--", place.path, check=False
         )
-        if status.strip():
+        if code != 0 or status.strip():
             return True
-        _, authors = await run_git(
+        code, authors = await run_git(
             place.repo, "log", "--follow", "--format=%ae", "--", place.path, check=False
         )
+        if code != 0:
+            return True
         return any(author.strip() != EMAIL for author in authors.split() if author.strip())
 
 
@@ -92,7 +97,8 @@ def _proposal(current: str, proposed: str, note: str) -> str:
 
     Frontmatter keys the owner's note lacks are added from Strata's version;
     the owner's values stay. The proposal is a callout (`> ` lines), so its
-    own headings cannot end the section; a newer proposal replaces it.
+    own headings cannot end the section. A newer proposal replaces the callout
+    and nothing else: what the owner wrote below it stays.
     """
     head, body_text = frontmatter.split(frontmatter.with_missing(current, proposed))
     lines = body_text.rstrip("\n").split("\n") if body_text.strip() else []
@@ -105,8 +111,10 @@ def _proposal(current: str, proposed: str, note: str) -> str:
     if start is None:
         lines += ["", *section] if lines else section
     else:
-        end = next(
-            (i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines)
-        )
-        lines[start:end] = section + ([""] if end < len(lines) else [])
+        end = start + 1
+        if end < len(lines) and not lines[end].strip():
+            end += 1  # the blank line under the heading
+        while end < len(lines) and lines[end].startswith(">"):
+            end += 1
+        lines[start:end] = section + ([""] if end < len(lines) and lines[end].strip() else [])
     return frontmatter.join(head, "\n".join(lines) + "\n")

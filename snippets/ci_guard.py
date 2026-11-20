@@ -1,41 +1,37 @@
-# Excerpt from Strata: strata/skills/dev_pipeline/ci.py. Omitted: imports, the constants FAILED, PASSED, MAX_JOBS, LOG_LINES, LOG_CHARS and LINE_CHARS, the log patterns _TIMESTAMP, _ANSI and _GROUP, and clean_log, which trims a CI log for the worker. Source is private.
+# Excerpt from Strata: strata/skills/dev_pipeline/ci.py. Omitted: imports, the constants FAILED, PASSED, MAX_JOBS, LOG_LINES, LOG_CHARS and LINE_CHARS, the log patterns _TIMESTAMP, _ANSI and _GROUP, the Failure class (one failed CI job and the end of its log), and clean_log, which trims a CI log for the worker. Source is private.
 """The pull request's CI: what failed, the log excerpt the worker gets, the guard.
 
 Tests run only in the repository's CI on GitHub, never on Strata's server
 (owner decision: the worker never runs commands). When a check fails, the
 worker gets the end of the failed jobs' logs as data and one round to fix the
 cause. Before such a fix is reviewed or pushed, `weakened` looks at it
-without any AI: a fix that deletes a test file, adds a skip or an expected
-failure, removes test functions or touches CI configuration is not sent.
+without any AI: a fix that deletes a test file or renames it out of the test
+runner's reach, adds a skip, an expected failure or a pytest setting that
+leaves tests out, removes test functions or touches CI configuration is not
+sent. These are pattern checks: they catch the usual shortcuts, not every way
+to weaken a test (a weaker assertion passes them).
 """
 
-# A test that no longer runs or no longer counts: Python, JavaScript, Java, Go, Rust.
+# A test that no longer runs or no longer counts: Python, JavaScript, Java, Go, Rust,
+# and pytest settings that leave tests out.
 _SKIP = re.compile(
     r"pytest\.mark\.(skip|skipif|xfail)\b|pytest\.(skip|xfail)\(|@unittest\.(skip\w*|expectedFailure)"
     r"|\b(it|test|describe)\.(skip|todo|failing)\(|\bx(it|test|describe)\("
     r"|@(Disabled|Ignore)\b|\bt\.Skip(Now|f)?\(|#\[ignore\]"
+    r"|--deselect\b|\bcollect_ignore(_glob)?\b"
 )
-_TEST_DEF = re.compile(r"^\s*(async\s+)?def\s+test\w*\s*\(|^\s*(it|test)\s*\(\s*['\"`]")
+# A test function: Python, JavaScript, Go, Java (JUnit), Rust.
+_TEST_DEF = re.compile(
+    r"^\s*(async\s+)?def\s+test\w*\s*\(|^\s*(it|test)\s*\(\s*['\"`]"
+    r"|^\s*func\s+Test\w*\s*\(|^\s*@Test\b|^\s*#\[test\]"
+)
+# A file the test runner collects by its name.
+_TEST_FILE = re.compile(r"(^|/)test_[^/]+$|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.java$")
 _TEST_PATH = re.compile(
     r"(^|/)(tests?|__tests__|specs?)/|(^|/)test_[^/]+$|_test\.\w+$|\.(test|spec)\.\w+$"
     r"|(^|/)conftest\.py$"
 )
 _CI_PATH = re.compile(r"^\.github/|(^|/)\.gitlab-ci\.yml$")
-
-
-@dataclass(frozen=True)
-class Failure:
-    """One failed CI job, with the end of its log."""
-
-    workflow: str
-    job: str
-    steps: tuple[str, ...]
-    url: str
-    log: str
-
-    @property
-    def name(self) -> str:
-        return f"{self.workflow} / {self.job}"
 
 
 @dataclass(frozen=True)
@@ -80,13 +76,20 @@ def weakened(name_status: str, diff: str) -> list[Finding]:
     """What a CI fix did to the tests or the CI configuration that it must not.
 
     `name_status` is `git diff --name-status -M` and `diff` is `git diff -U0`,
-    both of the fix alone. A renamed or moved test file is fine.
+    both of the fix alone. A test file renamed or moved to where the runner still
+    collects it is fine; renamed out of its reach, it counts as deleted.
     """
     findings = []
     for line in name_status.splitlines():
         status, _, paths = line.partition("\t")
         changed = paths.split("\t")
-        if status.startswith("D") and _TEST_PATH.search(changed[0]):
+        gone = status.startswith("D") and _TEST_PATH.search(changed[0]) is not None
+        renamed_away = (
+            status.startswith("R")
+            and _TEST_FILE.search(changed[0]) is not None
+            and not _TEST_FILE.search(changed[-1])
+        )
+        if gone or renamed_away:
             findings.append(Finding("deleted", changed[0]))
         for path in changed:
             if _CI_PATH.search(path):

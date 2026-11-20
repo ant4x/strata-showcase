@@ -1,4 +1,4 @@
-# Excerpt from Strata: tests/test_memory_owner_edits.py. Omitted: imports and three tests of section edits (an edit applied again after a push, a note that keeps changing, facts and topics). Source is private.
+# Excerpt from Strata: tests/test_memory_owner_edits.py. Omitted: imports and five tests: the owner's own request, a note changed since it was read, and three of section edits (an edit applied again after a push, a note that keeps changing, facts and topics). Source is private.
 """The owner's edits win: proposals instead of rewrites, edits applied again after a push."""
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,7 +36,7 @@ def memory(root: Path) -> Memory:
     return Memory(root, clock=lambda: NOW)
 
 
-STRATAS = "---\ntype: project\ndescription: Telescope app\nstatus: active\n---\n# Stratoscope\n"
+STRATAS = "---\ntype: project\ndescription: Free SEO check\nstatus: active\n---\n# Stratoscope\n"
 
 
 async def test_a_note_only_strata_wrote_is_replaced(memory: Memory, root: Path) -> None:
@@ -48,7 +48,7 @@ async def test_a_note_only_strata_wrote_is_replaced(memory: Memory, root: Path) 
 
 
 async def test_a_note_the_owner_edited_gets_a_proposal_instead(memory: Memory, root: Path) -> None:
-    owner_commits(root, CARD, "---\ndescription: My telescope\n---\n# Stratoscope\n\nMY TEXT\n")
+    owner_commits(root, CARD, "---\ndescription: My SEO check\n---\n# Stratoscope\n\nMY TEXT\n")
     proposed = STRATAS + "\n## Log\n\n- 2026-10-05 Launched.\n"
 
     await memory.write(CARD, proposed, message="memory: card", source="assistant")
@@ -56,7 +56,7 @@ async def test_a_note_the_owner_edited_gets_a_proposal_instead(memory: Memory, r
     text = (root / CARD).read_text()
     assert text.split(PROPOSED)[0].rstrip().endswith("# Stratoscope\n\nMY TEXT")
     fields = frontmatter.fields(text)
-    assert fields["description"] == "My telescope", "the owner's value stays"
+    assert fields["description"] == "My SEO check", "the owner's value stays"
     assert fields["type"] == "project" and fields["status"] == "active", "missing keys added"
     assert text.endswith(
         "## Proposed by Strata\n\n> [!note] Strata's version, 2026-10-05 (assistant). Your "
@@ -83,28 +83,31 @@ async def test_a_change_not_committed_yet_is_the_owners_too(memory: Memory, root
     assert "Typed on the server" in (root / CARD).read_text()
 
 
-async def test_the_owners_own_request_and_strata_files_are_replaced(
-    memory: Memory, root: Path
-) -> None:
+async def test_the_owners_text_after_a_proposal_stays(memory: Memory, root: Path) -> None:
     owner_commits(root, CARD, "# Stratoscope\n\nMY TEXT\n")
-    owner_commits(root, "drafts/2026-10-05/a.md", "draft by hand")
+    await memory.write(CARD, STRATAS + "\nFirst.\n", message="m", source="assistant")
+    owner_commits(root, CARD, (root / CARD).read_text() + "\nMY NOTE BELOW\n")
 
-    await memory.write(CARD, STRATAS, message="approved", source="ideas", owner=True)
-    await memory.write("drafts/2026-10-05/a.md", "new draft", message="d", source="t")
-
-    assert "MY TEXT" not in (root / CARD).read_text(), "the owner asked for it"
-    assert "new draft" in (root / "drafts/2026-10-05/a.md").read_text(), "not an indexed note"
-
-
-async def test_a_note_that_changed_since_it_was_read_gets_a_proposal(
-    memory: Memory, root: Path
-) -> None:
-    await memory.write(CARD, STRATAS, message="card", source="assistant")
-    read = memory.read(CARD)
-    (root / CARD).write_text(STRATAS + "\nA push landed meanwhile.\n")
-    git(root, "-c", "user.name=Strata", "-c", "user.email=strata@localhost", "commit", "-qam", "x")
-
-    await memory.write(CARD, STRATAS + "\nStale.\n", message="c", source="t", expected=read)
+    await memory.write(CARD, STRATAS + "\nSecond.\n", message="m", source="assistant")
 
     text = (root / CARD).read_text()
-    assert "A push landed meanwhile." in text.split(PROPOSED)[0] and "> Stale." in text
+    assert "MY NOTE BELOW" in text and "Second." in text and "First." not in text
+
+
+async def test_a_card_counts_as_the_owners_when_git_cannot_tell(
+    memory: Memory, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await memory.write(CARD, STRATAS + "\nOld.\n", message="card", source="assistant")
+    real = store.run_git
+
+    async def git_fails_to_tell(repo: Path, *args: str, **kwargs: Any) -> tuple[int, str]:
+        if args[0] in ("status", "log"):
+            return 128, ""
+        return await real(repo, *args, **kwargs)
+
+    monkeypatch.setattr(store, "run_git", git_fails_to_tell)
+
+    await memory.write(CARD, STRATAS + "\nNew.\n", message="card", source="assistant")
+
+    text = (root / CARD).read_text()
+    assert "Old." in text.split(PROPOSED)[0] and "> New." in text

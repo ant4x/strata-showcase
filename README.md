@@ -1,6 +1,6 @@
 # Strata
 
-**Status: built, not yet deployed. Architecture and code are complete, production testing is pending.**
+**Status: built and tested offline, not yet deployed.** 17 of the 21 planned phases are done; the first run on a server comes next.
 
 A personal AI agent for one owner. I talk to it through a private Telegram bot, and it does its work on the Claude Code CLI (headless) and OpenRouter models, on request and on a schedule. It researches the topics I follow and drafts posts for my channels, learns what works on each platform, scouts new topics, writes a daily brief on a market watchlist, proposes improvements to itself and takes a coding task to a pull request. It prepares, I decide: Strata publishes, merges and deploys nothing by itself.
 
@@ -18,8 +18,8 @@ I led the development end to end and used AI coding agents as tools: Claude Code
 ## In numbers
 
 - 136 Python files, about 23,000 lines: seven skills and the core (bot, queue, scheduler, orchestrator, engines, memory, operations).
-- 1,009 tests, all offline, in 64 files and 3 helpers of about 16,000 lines, run by CI on Python 3.11, 3.12 and 3.14 (one test, of the sudo rule, needs root and is skipped on 3.11 and 3.12).
-- 38 pull requests from September 28 to October 25, 2026: 17 of 21 phases built.
+- 1,018 tests, all offline, in 64 files and 3 helpers of about 16,000 lines, run by CI on Python 3.11, 3.12 and 3.14 (one test, of the sudo rule, needs root and is skipped on 3.11 and 3.12).
+- 38 pull requests from September 28 to October 25, 2026.
 - Nothing has run against the real Telegram, Claude, GitHub or a server yet; the first-run checks are written down.
 
 ## How it works
@@ -134,6 +134,24 @@ Markdown notes in one folder, readable in Obsidian, in two git repositories: **w
 - **Learning.** An answer may end with up to 3 facts worth remembering. Every evening a short run keeps the new, lasting and useful ones and sends them in one message, where I save, correct, move between private and shared, or reject each. Health, family, money, places and trips go to personal memory; a rejected fact is never proposed again.
 - **Measuring.** The Monday report shows the average and the largest context per skill.
 
+A card I edited, after Strata wrote its own version of it (the text a test expects):
+
+```markdown
+# Stratoscope
+
+MY TEXT
+
+## Proposed by Strata
+
+> [!note] Strata's version, 2026-10-05 (assistant). Your text above is kept: take what you need from here, then delete this section.
+>
+> # Stratoscope
+>
+> ## Log
+>
+> - 2026-10-05 Launched.
+```
+
 </details>
 
 ## Engineering decisions
@@ -157,14 +175,14 @@ Two pollers on one Telegram token make Telegram answer 409 to one of them at ran
 <details>
 <summary><b>A queue two processes can share.</b> Claims under SQLite's write lock, with a race test that fails without it.</summary>
 
-A task is claimed under `BEGIN IMMEDIATE`, so two workers never take the same task and the parallel limit holds in a race. A test races four connections for 30 tasks; with the transaction removed, the same race produced 42 to 46 claims. A failed attempt comes back after a growing pause, a task cut off by a restart goes back to the queue, and a task waiting for a usage limit to reset keeps its attempts. Excerpt: [snippets/queue_claim.py](snippets/queue_claim.py).
+A task is claimed under `BEGIN IMMEDIATE`, so two workers never take the same task and the parallel limit holds in a race. A test races four connections for 30 tasks; with the transaction removed, the same race produced 42 to 46 claims. A failed attempt comes back after a growing pause, a task cut off by a restart goes back to the queue, and a task waiting for a usage limit to reset keeps its attempts. Excerpt: [snippets/queue_claim.py](snippets/queue_claim.py), tests: [snippets/test_queue_claim.py](snippets/test_queue_claim.py).
 
 </details>
 
 <details>
 <summary><b>Incidents, even after a hard kill.</b> A run marker turns a crash or a kill into an incident at the next start.</summary>
 
-A marker file exists while a process runs, and a clean exit removes it. A crash, or a start that finds the marker (killed, out of memory, stopped by the watchdog), writes an incident to personal memory: time, component, last task and the redacted end of the log, as `LATEST.md` plus a dated copy. The same failure within an hour is counted, not written again. A triage step reports each incident once, fixes known problems with fixed safe scripts (low disk space, a failed backup push), asks a read-only model run to explain the rest, and runs one of those scripts on its advice only after I press a button. Excerpt: [snippets/incidents.py](snippets/incidents.py).
+A marker file exists while a process runs, and a clean exit removes it. A crash, or a start that finds the marker (killed, out of memory, stopped by the watchdog), writes an incident to personal memory: time, component, last task and the redacted end of the log, as `LATEST.md` plus a dated copy. The same failure within an hour is counted, not written again. A triage step reports each incident once, fixes known problems with fixed safe scripts (low disk space, a failed backup push), asks a read-only model run to explain the rest, and runs one of those scripts on its advice only after I press a button.
 
 </details>
 
@@ -192,14 +210,14 @@ The bot drops every update that is not mine. `STRATA.md` tells every engine that
 <details>
 <summary><b>A coding agent that cannot run commands.</b> Its own Unix user, one launcher, file tools only, no GitHub token.</summary>
 
-It runs as its own Unix user through one sudo rule and one root-owned launcher, which runs only `claude`, only in a folder right inside the workspace, with an environment rebuilt from scratch. It has file tools and no shell, so it cannot run a command that sends its Claude sign-in key out, and it gets no GitHub token. Only Strata commits and pushes, with the git directory outside the agent's folder and hooks off; a commit is refused when the change contains a secret from `.env` as written. Excerpt: [snippets/run-worker](snippets/run-worker).
+It runs as its own Unix user through one sudo rule and one root-owned launcher, which runs only `claude`, only in a folder right inside the workspace, with an environment rebuilt from scratch. It has file tools and no shell, so it cannot run a command that sends its Claude sign-in key out, and it gets no GitHub token. Only Strata commits and pushes, with the git directory outside the agent's folder and hooks off; a commit is refused when the change contains a secret from `.env` as written, in files marked binary too. Excerpts: [snippets/run-worker](snippets/run-worker), [snippets/git_checkout.py](snippets/git_checkout.py).
 
 </details>
 
 <details>
 <summary><b>A CI fix that cannot quietly drop tests.</b> Plain code checks the agent's fix before it is reviewed or pushed.</summary>
 
-When CI fails, the coding agent gets the end of the failed logs and one round to fix the cause. A deleted test file, a new skip or expected failure, fewer test functions or a change under `.github/` drops the fix, and I hear what it tried. These are pattern checks: they catch the usual shortcuts, not every way to weaken a test. Excerpt: [snippets/ci_guard.py](snippets/ci_guard.py).
+When CI fails, the coding agent gets the end of the failed logs and one round to fix the cause. A deleted test file or one renamed out of the runner's reach, a new skip, expected failure or pytest setting that leaves tests out, fewer test functions (Python, JavaScript, Go, Java, Rust) or a change under `.github/` drops the fix, and I hear what it tried. These are pattern checks: a weaker assertion still passes them. Excerpt: [snippets/ci_guard.py](snippets/ci_guard.py).
 
 </details>
 
@@ -220,9 +238,27 @@ Configured secrets are masked in each prompt and context, the coding agent's too
 
 </details>
 
+## What reviews found
+
+Before this page went public, three separate AI agents checked it against the source, and each finding was checked again in the code. Apart from wording, they found four weaknesses, each now fixed with a test that failed first:
+
+- an unrouted scheduled task waited whenever any skill was paused: for a task with no skill, SQL's `skill IN (...)` is NULL, and so was the `NOT` around it;
+- a `.gitattributes` line with `-diff` made a file look binary in the staged diff, so a secret in it would reach a commit and removed tests in it went uncounted;
+- a test file renamed out of the runner's reach, removed Go, Java and Rust tests, and pytest's `--deselect` slipped past the CI guard;
+- a new proposal deleted what I had written below the previous one in a card.
+
+<details>
+<summary>Three cases from earlier in the build</summary>
+
+- **A shell nobody asked for.** A review of the Claude Code settings found that pre-approving a list of tools does not remove the others: read-only shell commands still ran without asking, so text planted in a web page or a repository could have had a run read `.env`. Every run now gets exactly its skill's tool list and no tool that runs commands.
+- **A shutdown that could spin forever.** CI on Python 3.12 showed that `asyncio.gather` over tasks that had just finished returned without yielding, so the callback that removed them never ran, and the worker's shutdown and the bot's wait for a summary could spin. Both now wait only for unfinished tasks, and two tests reproduce the race.
+- **A backup that would fail on its first night.** Before the first install, the memory setup turned out to start a new history while the private GitHub repository already had commits, so the first nightly push would have been rejected. Setup now continues the existing commits, and a backup with commits the server lacks is never overwritten.
+
+</details>
+
 ## Roadmap
 
-17 of 21 phases are built. Next: the first run on a server with its checklist, then phase 20 (context guard), 18 (reply context and a list of promises), 16 (search in history) and 19 (a user guide).
+Next: the first run on a server with its checklist, then phase 20 (context guard), 18 (reply context and a list of promises), 16 (search in history) and 19 (a user guide).
 
 <details>
 <summary>All phases</summary>
@@ -262,12 +298,13 @@ Python 3.11 and later (3.14 on the planned server), aiogram 3, aiosqlite (SQLite
 |---|---|
 | [snippets/instance_lock.py](snippets/instance_lock.py) | One bot per token: a kernel file lock |
 | [snippets/queue_claim.py](snippets/queue_claim.py) | Claiming a task under SQLite's write lock, and recovery after a restart |
+| [snippets/test_queue_claim.py](snippets/test_queue_claim.py) | Its race tests on four connections, and the unrouted task |
 | [snippets/memory_owner_edits.py](snippets/memory_owner_edits.py) | My edits win: who wrote a card, from git, and Strata's proposal |
 | [snippets/test_memory_owner_edits.py](snippets/test_memory_owner_edits.py) | Its tests, on real git repositories with my commits |
-| [snippets/incidents.py](snippets/incidents.py) | The run marker, and the guard that records a crash or an unclean stop |
 | [snippets/run-worker](snippets/run-worker) | The launcher of the coding agent: its own user, one checkout, a clean environment |
+| [snippets/git_checkout.py](snippets/git_checkout.py) | Git for the agent's checkout: a separate git directory, no hooks, the token only in one command's environment, the secret check |
 | [snippets/ci_guard.py](snippets/ci_guard.py) | The rules for a CI fix, and the check that drops one that drops tests |
-| [snippets/test_ci_guard.py](snippets/test_ci_guard.py) | Its tests: a real fix, a moved test file, what a fix must not do |
+| [snippets/test_ci_guard.py](snippets/test_ci_guard.py) | Its tests: a real fix, a moved test file, what a fix must not do, renames, other languages, pytest settings |
 
 A script copies the excerpts from the private source. The first line of each names its file and everything left out; references to private docs such as `PLAN.md` stay as they are. They import modules not included here, so they are for reading, not running.
 

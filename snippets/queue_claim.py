@@ -48,7 +48,9 @@ class SqliteTaskQueue:
         if paused_skills:
             conditions = []
             if held:
-                conditions.append(f"skill IN ({', '.join('?' for _ in held)})")
+                marks = ", ".join("?" for _ in held)
+                # For a task with no skill yet `skill IN (...)` is NULL, and so is NOT (...).
+                conditions.append(f"(skill IS NOT NULL AND skill IN ({marks}))")
             if None in paused_skills:
                 conditions.append("skill IS NULL")
             pause = f"AND NOT (source != 'owner' AND ({' OR '.join(conditions)}))"

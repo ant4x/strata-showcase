@@ -1,4 +1,4 @@
-# Excerpt from Strata: tests/test_dev_ci.py. Omitted: imports and the five tests of the log excerpt, the fence and the follow-up text. Source is private.
+# Excerpt from Strata: tests/test_dev_ci.py. Omitted: imports, the five tests of the log excerpt, the fence and the follow-up text, and two edge cases (a skip that only moved, a content line that looks like a diff header). Source is private.
 """The CI helpers: the log excerpt the worker gets, and the guard on CI fixes."""
 
 
@@ -40,11 +40,38 @@ def test_the_guard_finds_what_a_ci_fix_must_not_do() -> None:
     ]
 
 
-def test_a_skip_that_was_already_there_and_moved_is_not_new() -> None:
-    change = diff("tests/test_app.py", ["@pytest.mark.skip"], ["@pytest.mark.skip"])
-    assert weakened("M\ttests/test_app.py", change) == []
+def test_a_test_file_renamed_out_of_the_runners_reach_counts_as_deleted() -> None:
+    names = "R100\ttests/test_api.py\ttests/api_old.py\nR100\tpkg/app_test.go\tpkg/app_old.go"
+    assert weakened(names, "") == [
+        Finding("deleted", "tests/test_api.py"),
+        Finding("deleted", "pkg/app_test.go"),
+    ]
 
 
-def test_a_content_line_that_looks_like_a_header_is_not_one() -> None:
-    change = diff("app.py", [], ["++ not a header, a line of content"])
-    assert weakened("M\tapp.py", change) == []
+def test_removed_go_java_and_rust_tests_are_found() -> None:
+    names = "M\tpkg/app_test.go\nM\tsrc/test/java/AppTest.java\nM\ttests/api.rs"
+    changes = "\n".join(
+        [
+            diff("pkg/app_test.go", ["func TestOne(t *testing.T) {"], []),
+            diff("src/test/java/AppTest.java", ["    @Test"], []),
+            diff("tests/api.rs", ["#[test]"], []),
+        ]
+    )
+
+    assert weakened(names, changes) == [
+        Finding("removed", "pkg/app_test.go", "1"),
+        Finding("removed", "src/test/java/AppTest.java", "1"),
+        Finding("removed", "tests/api.rs", "1"),
+    ]
+
+
+def test_tests_left_out_by_the_runners_settings_are_found() -> None:
+    names = "M\tpyproject.toml\nM\tconftest.py"
+    changes = "\n".join(
+        [
+            diff("pyproject.toml", [], ['addopts = "--deselect tests/test_api.py::test_login"']),
+            diff("conftest.py", [], ['collect_ignore = ["tests/test_api.py"]']),
+        ]
+    )
+
+    assert [finding.kind for finding in weakened(names, changes)] == ["skip", "skip"]
