@@ -24,7 +24,7 @@ I led the development end to end and used AI coding agents as tools: Claude Code
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     Me((Me)) -- message --> Bot[bot process]
     Bot -- replies, queued status --> Me
     Bot -- task --> Queue[(SQLite queue)]
